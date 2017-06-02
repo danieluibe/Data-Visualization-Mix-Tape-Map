@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <!--  Please note Bootstrap is only used solely for the grid and table layouts.  -->
+        <title>5100 Masters Capstone - Created by Denay Mack (dgm97), Sung Kyun (Kevin) Park (sp948)</title>
+        <link rel="stylesheet/less" type="text/css" href="assets/stylesheets/main.less" />
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+        <script src="https://d3js.org/d3.v4.min.js"></script>
+        <script src="https://code.jquery.com/jquery-3.2.1.min.js" integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4=" crossorigin="anonymous"></script>
+        <script src="//cdnjs.cloudflare.com/ajax/libs/less.js/2.7.2/less.min.js"></script>
+        <script src="http://connect.soundcloud.com/sdk/sdk-3.1.2.js"></script>
+        <script src="script.js"></script>
+    </head>
+    <body>
+        <div class="container">
+            <div id="splash">
+                <button type="button" id="closeSplash">
+                    <span class="glyphicon glyphicon-remove-circle" aria-hidden="true"></span>
+                </button>
+                <h1>About</h1>
+                <p>This website is a capstone project for INFO/CS 5100 at Cornell University. Users can create a 'mixtape' (aka playlist) by selecting songs that they like. Data was collected by way of AJAX calls to the Spotify API which makes for a dynamic and interactive experience for our users.</p>
+                <p>Begin by typing the name of a music artist and clicking start. A popular song by that artist will be randomly chosen as the first song in the mixtape. Five new song options from similar artists will appear for every new song that gets added to the playlist. The user will be able to see a data visualization of how different songs relate to each other and compare the results to their own expectations and preferences. Larger nodes means a more popular song.</p>
+            </div>
+            <header>
+                <h1>Mix Tape Map</h1>
+                <ul>
+                    <li id="about"><a>About</a></li>
+                </ul>
+                <h2>5100 Masters Capstone</h2>
+                <p id="errorMsg"></p>
+            </header>
+            <div class="row">
+                <div class="col-lg-3">
+                    <p>Added Tracks</p>
+                    <ul id="mixtape">
+                    </ul>
+                </div>
+                <div class="col-lg-6">
+                    <div id="search">
+                        <form id="searchForm">
+                            <input type="text" id="query" value="" placeholder="Type an Artist Name" class="searchFormButtons"/>
+                            <button type="button" id="searchButton" class="searchFormButtons">Start</button>
+                        </form>
+                        <ul id="searchResults">
+                        </ul>
+                    </div>
+                    <div id="tooltip"></div>
+                    <svg id="visualization">
+                    </svg>            
+                </div>
+                <div class="col-lg-3">
+                </div>
+            </div>
+        </div>
+        <script>
+            var artist;
+            var firstNode;
+            var selected_nodes = [];
+            
+            //**** get artist from search ****//
+            function showSearchResults(res) {
+                $("#searchResults").children().remove();
+                res.forEach(function(sr) {
+                    $("#searchResults").append("<li id='"+sr.id+"' class='searchResult'>"+sr.name+"</li>");
+                })
+            }
+            var searchArtist = function(query) {
+                console.log('user searched for '+query);
+                $.ajax({
+                    url: 'https://api.spotify.com/v1/search',
+                    data: {
+                        q: query,
+                        type: 'artist',
+                        limit: 5
+                    },
+                    beforeSend: function() {
+                        // loader
+                    },
+                    success: function (response) {
+                        showSearchResults(response.artists.items);
+                    },
+                    error: function() {
+                        reportError("No result found. Please check your wifi connection!");
+                    }
+                });
+            }
+            $("#searchButton").click(function() {
+                searchArtist($('#query').val());
+            });
+            
+            var start_nodes = [];
+            var similarArtists = [];
+            
+            //**** get first song ****//
+            var getFirstSong = function(artistId) {
+                console.log(artistId);
+                 $.ajax({
+                    url: 'https://api.spotify.com/v1/artists/'+artistId+'/top-tracks',
+                    data: {
+                        country: 'US'
+                    },
+                    success: function(res) {
+                        var target = getRandomIntInclusive(0,9);
+                        start_nodes.push(res.tracks[target]);
+                        selected_nodes.push(start_nodes[0]);
+                        $("#mixtape").append("<li id='"+start_nodes[0].id+"' class='searchResult'>"+start_nodes[0].name+"</li>");
+                        getSimilarArtists(artist.id);
+                    }
+                });
+            }
+            //**** get selected song ****//
+            var getSelectedSong = function(song) {
+                start_nodes.push(song);
+                getSimilarArtists(song.artists[0].id);
+            }
+            //**** get 5 similar aritsts ****//
+            var getSimilarArtists = function(artistId) {
+                $.ajax({
+                    url: 'https://api.spotify.com/v1/artists/'+artistId+'/related-artists',
+                    success: function (res) {
+                        var output = res.artists;
+                        for (var i=0; i<5; i++) {
+                            var target = getRandomIntInclusive(0,output.length-1);
+                            similarArtists.push(output[target]);
+                            output.splice(target, 1);
+                        }
+                        getSimilarSongs(similarArtists);
+                    }
+                });
+            }
+            function getSimilarSongs(similarArtists){
+                var similarSongs = [];
+                similarArtists.forEach(function(d) {
+                    $.ajax({
+                        url: 'https://api.spotify.com/v1/artists/'+d.id+'/top-tracks',
+                        data: { country: 'US' },
+                        success: function(res) {
+                            var target = getRandomIntInclusive(0,9);
+                            similarSongs.push(res.tracks[target]);
+                            if (similarSongs.length == 5) {
+                                console.log('we made it!');
+                                start_nodes = start_nodes.concat(similarSongs);
+                                showMap(start_nodes);
+                            }
+                        }
+                    })
+                })
+            }
+            var getArtistSong = function(artistId) {
+                $.ajax({
+                    url: 'https://api.spotify.com/v1/artists/'+artistId+'/top-tracks',
+                    data: {
+                        country: 'US'
+                    },
+                    success: function(res) {
+                        var target = getRandomIntInclusive(0,9);
+                        start_nodes.push(res.tracks[target]);
+                        getSimilarArtists(artist.id);
+                    }
+                });
+            }
+            
+            //**** begin simulation ****//
+            $(document).on('click', '.searchResult', function () {
+                // simulation begins once user selects artist
+                console.log("user selected "+this.id);
+                artist = this;
+                getFirstSong(artist.id);
+                
+                $("#search").remove();
+            });
+            /*************************
+            ********* app.js *********
+            **************************/
+            
+            var width = 700;
+            var height = 700;
+            
+            var popularityScale = d3.scalePow().domain([0,100]).range([2,30]);
+            
+            var svg = d3.select("#visualization")
+            .attr("width", width)
+            .attr("height", height);
+            
+            var force = d3.forceSimulation() 
+            .force("charge", d3.forceManyBody().strength(-200).distanceMin(100).distanceMax(1000)) 
+            .force("link", d3.forceLink().distance(150).id(function(d) { return d.index }).iterations(10)) 
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .force("y", d3.forceY(0.1))
+            .force("x", d3.forceX(0.1))
+            .alphaTarget(1);
+            
+            function updateMap(n) {
+                // add new selection
+                selected_nodes.push(n);
+                // check for subnodes
+                start_nodes = [];
+                similarArtists = [];
+                svg.selectAll(".node").remove();
+                svg.selectAll(".link").remove();
+                svg.selectAll('text').remove();
+                svg.selectAll('g').remove();
+                
+                selected_nodes.push(n);
+                $("#mixtape").append("<li id='"+n.id+"' class='searchResult'>"+n.name+"</li>");
+                
+                getSelectedSong(n);
+            }
+            
+            function tooltipHtml(n){	/* function to create html content string in tooltip div. */
+                return "<h4>"+n.name+"</h4><ul>"+
+                "<li>Artist: "+n.artists[0].name+"</li>"+
+                "<li>Popularity: "+n.popularity+"</li>"
+                "</ul>";
+            }
+            
+            function showMap(nodes) {
+                
+                // add links
+                var links = [];
+                for (var i = 1; i < nodes.length; i++) {
+                    links.push({"source":0, "target": i})
+                }
+                // start force
+                force.nodes(nodes).force("link").links(links);
+                
+                // place links underneath
+                var link = svg.selectAll(".link")
+                .data(links)
+                .enter()
+                .append("line")
+                .attr("class", "link");
+                
+                // place nodes
+                var node = svg.selectAll(".node").data(nodes).enter().append("g");
+                
+                node.append('circle')
+                .attr("class", "node")
+                .attr('r', function(d) {
+                    return popularityScale(d.popularity);
+                })
+                .attr('fill', function (d) {
+                    if (nodes.indexOf(d)==0) {
+                        return "gold";
+                    } else {
+                        return "black";
+                    }
+                })
+                .on("mouseover", showData)
+                .on("mouseout", hideData)
+                .on("click", function(d) {
+                    if (d==nodes[0]) {
+                        $("#errorMsg").html("That song is already on your list :) Click a new song to add.");
+                    } else {
+                        updateMap(d);
+                        $("#errorMsg").html("");
+                    }
+                });
+            
+                node.append("text")
+                .attr("dx", 30)
+                .attr("dy", 5)
+                .style("font-family", "sans-serif")
+                .style("font-size", "18px")
+                .attr("fill", "black")
+                .text(function (d) {
+                    return d.name
+                });
+                
+                force.on("tick", function() {
+                    link.attr("x1", function (d) { return d.source.x; })
+                    .attr("y1", function (d) { return d.source.y; })
+                    .attr("x2", function (d) { return d.target.x; })
+                    .attr("y2", function (d) { return d.target.y;
+                    });
+                    node.attr("transform", function (d) {
+                        return "translate(" + d.x + "," + d.y + ")";
+                    });
+                });
+            }
+            
+            
+            function showData(d) {
+                d3.select("#tooltip").transition().duration(200).style("opacity", .9);
+                d3.select("#tooltip").html(tooltipHtml(d))
+                .style("left", (d3.event.pageX - 600) + "px")
+                .style("top", (d3.event.pageY - 100) + "px");
+            }
+            function hideData() {
+                return;
+            }
+        </script>
+    </body>
+</html>
